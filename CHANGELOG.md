@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.4] - 2024-01-18
+
+### Added
+
+- Scrollable content pane for long test output (Ctrl+D/PgDn to scroll down, Ctrl+U/PgUp to scroll up)
+- Scroll indicators show when content extends beyond visible area
+- Smart text wrapping for long test names in sidebar
+- Intelligent line wrapping for test output in content pane
+
+### Changed
+
+- Content pane now properly handles output longer than screen height
+- Test names wrap across multiple lines instead of truncating
+- Scroll position resets when changing selected test
+- Improved text wrapping algorithm that respects word boundaries
+
+### Fixed
+
+- Overflow issues when test output is very long
+- Test names no longer cut off awkwardly in sidebar
+- Content pane properly displays all output with scrolling
+- Line wrapping now works correctly for long lines
+
 ## [0.0.3] - 2024-01-18
 
 ### Added

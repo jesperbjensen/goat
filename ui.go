@@ -10,29 +10,31 @@ import (
 
 // model represents the application state for the TUI
 type model struct {
-	tests        []TestResult
-	cursor       int
-	width        int
-	height       int
-	sidebarWidth int
-	ready        bool
-	testArgs     []string
-	loading      bool
-	err          error
-	showOnlyFail bool
+	tests         []TestResult
+	cursor        int
+	width         int
+	height        int
+	sidebarWidth  int
+	ready         bool
+	testArgs      []string
+	loading       bool
+	err           error
+	showOnlyFail  bool
+	contentScroll int // vertical scroll offset for content pane
 }
 
 // initialModel creates a new model with default values
 func initialModel(testArgs []string) model {
 	return model{
-		tests:        []TestResult{},
-		cursor:       0,
-		sidebarWidth: 30,
-		ready:        false,
-		testArgs:     testArgs,
-		loading:      true,
-		err:          nil,
-		showOnlyFail: false,
+		tests:         []TestResult{},
+		cursor:        0,
+		sidebarWidth:  30,
+		ready:         false,
+		testArgs:      testArgs,
+		loading:       true,
+		err:           nil,
+		showOnlyFail:  false,
+		contentScroll: 0,
 	}
 }
 
@@ -66,18 +68,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.contentScroll = 0 // Reset scroll when changing test
 			}
 
 		case "down", "j":
-			if m.cursor < len(m.tests)-1 {
+			filteredTests := m.getFilteredTests()
+			if m.cursor < len(filteredTests)-1 {
 				m.cursor++
+				m.contentScroll = 0 // Reset scroll when changing test
 			}
 
 		case "home", "g":
 			m.cursor = 0
+			m.contentScroll = 0
 
 		case "end", "G":
-			m.cursor = len(m.tests) - 1
+			filteredTests := m.getFilteredTests()
+			m.cursor = len(filteredTests) - 1
+			m.contentScroll = 0
 
 		case "enter":
 			if m.cursor < len(m.tests) {
@@ -90,6 +98,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f":
 			m.showOnlyFail = !m.showOnlyFail
 			m.cursor = 0 // Reset cursor when toggling filter
+			m.contentScroll = 0
+
+		case "ctrl+d", "pgdown":
+			// Scroll content down (show more)
+			m.contentScroll += 10
+
+		case "ctrl+u", "pgup":
+			// Scroll content up (show less)
+			m.contentScroll -= 10
+			if m.contentScroll < 0 {
+				m.contentScroll = 0
+			}
 		}
 
 	case tea.MouseMsg:
@@ -188,17 +208,49 @@ func (m model) renderSidebar() string {
 
 			testName := test.Name
 			maxNameLen := m.sidebarWidth - 6
-			if len(testName) > maxNameLen {
-				testName = testName[:maxNameLen-3] + "..."
-			}
 
-			line := fmt.Sprintf("%s %s %s", cursor, status, testName)
-			if i == m.cursor {
-				line = selectedItemStyle.Render(line)
+			// Wrap test name if too long
+			if len(testName) > maxNameLen {
+				// First line with cursor and status
+				firstLine := testName
+				if len(firstLine) > maxNameLen {
+					firstLine = firstLine[:maxNameLen]
+				}
+
+				line := fmt.Sprintf("%s %s %s", cursor, status, firstLine)
+				if i == m.cursor {
+					line = selectedItemStyle.Render(line)
+				} else {
+					line = style.Render(line)
+				}
+				sidebarContent.WriteString(line + "\n")
+
+				// Continuation lines (indented)
+				remaining := testName[len(firstLine):]
+				for len(remaining) > 0 {
+					chunk := remaining
+					chunkLen := maxNameLen - 2 // Account for indentation
+					if len(chunk) > chunkLen {
+						chunk = chunk[:chunkLen]
+					}
+					continuationLine := "    " + chunk
+					if i == m.cursor {
+						continuationLine = selectedItemStyle.Render(continuationLine)
+					} else {
+						continuationLine = style.Render(continuationLine)
+					}
+					sidebarContent.WriteString(continuationLine + "\n")
+					remaining = remaining[len(chunk):]
+				}
 			} else {
-				line = style.Render(line)
+				line := fmt.Sprintf("%s %s %s", cursor, status, testName)
+				if i == m.cursor {
+					line = selectedItemStyle.Render(line)
+				} else {
+					line = style.Render(line)
+				}
+				sidebarContent.WriteString(line + "\n")
 			}
-			sidebarContent.WriteString(line + "\n")
 		}
 	}
 
@@ -210,45 +262,85 @@ func (m model) renderSidebar() string {
 
 // renderContent builds the content pane showing the selected test details
 func (m model) renderContent() string {
-	var contentText strings.Builder
-
 	filteredTests := m.getFilteredTests()
 
 	if len(filteredTests) == 0 {
 		// Show success message when all tests pass
 		if m.showOnlyFail && m.hasPassingTests() {
-			contentText.WriteString(successStyle.Render("🎉 All Tests Passed!") + "\n\n")
-			contentText.WriteString("All tests in your test suite passed successfully.\n")
-			contentText.WriteString(dimStyle.Render("Press 'f' to show all tests"))
+			content := successStyle.Render("🎉 All Tests Passed!") + "\n\n" +
+				"All tests in your test suite passed successfully.\n" +
+				dimStyle.Render("Press 'f' to show all tests")
+			return contentStyle.
+				Width(m.width - m.sidebarWidth - 4).
+				Height(m.height - 4).
+				Render(content)
 		}
-	} else if m.cursor < len(filteredTests) {
-		selectedTest := filteredTests[m.cursor]
+		return contentStyle.
+			Width(m.width - m.sidebarWidth - 4).
+			Height(m.height - 4).
+			Render("")
+	}
 
-		// Title
-		statusText := ""
-		switch selectedTest.Status {
-		case "pass":
-			statusText = passStyle.Render("PASS")
-		case "fail":
-			statusText = failStyle.Render("FAIL")
+	if m.cursor >= len(filteredTests) {
+		return contentStyle.
+			Width(m.width - m.sidebarWidth - 4).
+			Height(m.height - 4).
+			Render("")
+	}
+
+	selectedTest := filteredTests[m.cursor]
+
+	// Build all content lines first
+	var allLines []string
+
+	// Title
+	statusText := ""
+	switch selectedTest.Status {
+	case "pass":
+		statusText = passStyle.Render("PASS")
+	case "fail":
+		statusText = failStyle.Render("FAIL")
+	}
+	allLines = append(allLines, titleStyle.Render(selectedTest.Name)+" "+statusText)
+
+	// File link
+	if selectedTest.FilePath != "" && selectedTest.Line > 0 {
+		fileLink := fmt.Sprintf("%s:%d", selectedTest.FilePath, selectedTest.Line)
+		allLines = append(allLines, lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Render(fileLink))
+	}
+	allLines = append(allLines, "")
+
+	// Output - wrap long lines
+	contentWidth := m.width - m.sidebarWidth - 8 // Account for padding
+	for _, line := range selectedTest.Output {
+		trimmed := strings.TrimRight(line, "\n")
+		if trimmed != "" {
+			// Wrap long lines
+			wrapped := m.wrapText(trimmed, contentWidth)
+			allLines = append(allLines, wrapped...)
 		}
+	}
 
-		contentText.WriteString(titleStyle.Render(selectedTest.Name) + " " + statusText + "\n")
+	// Apply scroll offset
+	visibleHeight := m.height - 4
+	startLine := m.contentScroll
+	if startLine >= len(allLines) {
+		startLine = max(0, len(allLines)-1)
+		m.contentScroll = startLine
+	}
+	endLine := min(startLine+visibleHeight, len(allLines))
 
-		// File link
-		if selectedTest.FilePath != "" && selectedTest.Line > 0 {
-			fileLink := fmt.Sprintf("%s:%d", selectedTest.FilePath, selectedTest.Line)
-			contentText.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Render(fileLink) + "\n")
-		}
-		contentText.WriteString("\n")
+	// Show scroll indicators
+	var contentText strings.Builder
+	if startLine > 0 {
+		contentText.WriteString(dimStyle.Render("▲ Scroll up (Ctrl+U/PgUp)") + "\n")
+	}
 
-		// Output
-		for _, line := range selectedTest.Output {
-			trimmed := strings.TrimRight(line, "\n")
-			if trimmed != "" {
-				contentText.WriteString(trimmed + "\n")
-			}
-		}
+	visibleLines := allLines[startLine:endLine]
+	contentText.WriteString(strings.Join(visibleLines, "\n"))
+
+	if endLine < len(allLines) {
+		contentText.WriteString("\n" + dimStyle.Render("▼ Scroll down (Ctrl+D/PgDn)"))
 	}
 
 	return contentStyle.
@@ -341,4 +433,54 @@ func (m model) renderStatusBar() string {
 	return statusBarStyle.
 		Width(m.width).
 		Render(statusLine)
+}
+
+// wrapText wraps text to fit within the specified width
+func (m model) wrapText(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+
+	// Handle empty text
+	if len(text) == 0 {
+		return []string{""}
+	}
+
+	var lines []string
+	// Remove ANSI codes for width calculation (approximate)
+	visibleText := text
+
+	for len(visibleText) > width {
+		// Try to break at a space
+		breakPoint := width
+		foundSpace := false
+		for i := width; i > width/2 && i < len(visibleText); i-- {
+			if visibleText[i] == ' ' {
+				breakPoint = i
+				foundSpace = true
+				break
+			}
+		}
+
+		if !foundSpace {
+			// No space found, force break at width
+			breakPoint = width
+		}
+
+		lines = append(lines, text[:breakPoint])
+		text = text[breakPoint:]
+		visibleText = visibleText[breakPoint:]
+
+		// Trim leading space on continuation lines
+		if len(text) > 0 && text[0] == ' ' {
+			text = text[1:]
+			visibleText = visibleText[1:]
+		}
+	}
+
+	if len(text) > 0 {
+		lines = append(lines, text)
+	}
+
+	return lines
 }

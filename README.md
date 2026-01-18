@@ -15,6 +15,8 @@ A Terminal User Interface (TUI) for running and viewing Go tests with an interac
 - 🎉 Success message when all tests pass
 - ⚠️ Clear error messages if something goes wrong
 - 📊 Status bar with test counts and keyboard hints
+- 📜 Scrollable content pane for long test output
+- 🔄 Smart text wrapping for long test names and output
 
 ## Installation
 
@@ -76,6 +78,8 @@ goat -v -race -cover ./pkg/...
 - **G/End** - Jump to last test
 - **Enter** - Open test file at error line in editor
 - **f** - Toggle filter (show only failed tests)
+- **Ctrl+D/PgDn** - Scroll content down (for long test output)
+- **Ctrl+U/PgUp** - Scroll content up (for long test output)
 - **q/Ctrl+C** - Quit application
 
 ## Mouse Controls
@@ -152,6 +156,8 @@ Bubble Tea TUI implementation:
 10. Pressing Enter opens the test file at the error line
 11. Press 'f' to toggle between all tests and failures only
 12. When all tests pass, a success message is displayed
+13. Long test output can be scrolled with Ctrl+D/Ctrl+U or PgDn/PgUp
+14. Long test names and output wrap intelligently to fit the screen
 
 If an error occurs (e.g., no Go module, invalid path), a clear error message is shown.
 
