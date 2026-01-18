@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
+	"sort"
 	"strings"
-)
 
-const (
-	colorReset = "\033[0m"
-	colorRed   = "\033[31m"
-	colorGreen = "\033[32m"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type TestEvent struct {
@@ -26,30 +23,75 @@ type TestEvent struct {
 }
 
 type TestResult struct {
+	Name     string
 	Status   string
 	Output   []string
 	FilePath string
 	Line     int
 }
 
-func main() {
-	// Check for --only-fail flag
-	onlyFail := slices.Contains(os.Args[1:], "--only-fail")
+type model struct {
+	tests        []TestResult
+	cursor       int
+	width        int
+	height       int
+	sidebarWidth int
+	ready        bool
+}
 
-	// Run go test with JSON output
+type testsLoadedMsg struct {
+	tests []TestResult
+}
+
+var (
+	sidebarStyle = lipgloss.NewStyle().
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderRight(true).
+			BorderForeground(lipgloss.Color("240")).
+			PaddingRight(1)
+
+	contentStyle = lipgloss.NewStyle().
+			Padding(0, 2)
+
+	selectedItemStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("170")).
+				Bold(true)
+
+	passStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10"))
+
+	failStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9"))
+
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("12"))
+)
+
+func initialModel() model {
+	return model{
+		tests:        []TestResult{},
+		cursor:       0,
+		sidebarWidth: 30,
+		ready:        false,
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	return loadTests
+}
+
+func loadTests() tea.Msg {
 	cmd := exec.Command("go", "test", "-json")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating stdout pipe: %v\n", err)
-		os.Exit(1)
+		return testsLoadedMsg{tests: []TestResult{}}
 	}
 
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting go test: %v\n", err)
-		os.Exit(1)
+		return testsLoadedMsg{tests: []TestResult{}}
 	}
 
-	// Parse JSON output line by line
 	scanner := bufio.NewScanner(stdout)
 	testResults := make(map[string]*TestResult)
 
@@ -61,21 +103,21 @@ func main() {
 			continue
 		}
 
-		// Track test output
 		if event.Test != "" && event.Action == "output" {
 			if testResults[event.Test] == nil {
-				testResults[event.Test] = &TestResult{Output: []string{}}
+				testResults[event.Test] = &TestResult{
+					Name:   event.Test,
+					Output: []string{},
+				}
 			}
 			testResults[event.Test].Output = append(testResults[event.Test].Output, event.Output)
 
-			// Parse file path and line number from output (e.g., "    main_test.go:6: Fake error")
 			if testResults[event.Test].FilePath == "" {
 				trimmed := strings.TrimSpace(event.Output)
 				if strings.Contains(trimmed, ".go:") {
 					parts := strings.Split(trimmed, ":")
 					if len(parts) >= 2 {
 						testResults[event.Test].FilePath = parts[0]
-						// Parse line number
 						if len(parts) >= 2 {
 							var lineNum int
 							fmt.Sscanf(parts[1], "%d", &lineNum)
@@ -86,61 +128,262 @@ func main() {
 			}
 		}
 
-		// We only care about pass/fail actions for individual tests
 		if event.Test != "" && (event.Action == "pass" || event.Action == "fail") {
 			if testResults[event.Test] == nil {
-				testResults[event.Test] = &TestResult{Output: []string{}}
+				testResults[event.Test] = &TestResult{
+					Name:   event.Test,
+					Output: []string{},
+				}
 			}
 			testResults[event.Test].Status = event.Action
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading test output: %v\n", err)
-		os.Exit(1)
+	cmd.Wait()
+
+	// Convert map to sorted slice
+	tests := make([]TestResult, 0, len(testResults))
+	for _, result := range testResults {
+		tests = append(tests, *result)
 	}
 
-	if err := cmd.Wait(); err != nil {
-		// Test failures cause non-zero exit, but we still want to print results
-		// so we don't exit here
-	}
-
-	// Print results in the requested format
-	for test, result := range testResults {
-		status := result.Status
-
-		// Skip passing tests if --only-fail is set
-		if onlyFail && status == "pass" {
-			continue
+	// Sort: failed tests first, then by name
+	sort.Slice(tests, func(i, j int) bool {
+		if tests[i].Status == "fail" && tests[j].Status != "fail" {
+			return true
 		}
-
-		statusUpper := ""
-		color := ""
-		if status == "pass" {
-			statusUpper = "PASS"
-			color = colorGreen
-		} else if status == "fail" {
-			statusUpper = "FAIL"
-			color = colorRed
+		if tests[i].Status != "fail" && tests[j].Status == "fail" {
+			return false
 		}
+		return tests[i].Name < tests[j].Name
+	})
 
-		fmt.Printf("* %s: %s%s%s", test, color, statusUpper, colorReset)
+	return testsLoadedMsg{tests: tests}
+}
 
-		// Add clickable link for failed tests
-		if status == "fail" && result.FilePath != "" && result.Line > 0 {
-			fmt.Printf(" (%s:%d)", result.FilePath, result.Line)
-		}
-		fmt.Println()
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.ready = true
+		return m, nil
 
-		// Show output for failed tests
-		if status == "fail" && len(result.Output) > 0 {
-			for _, line := range result.Output {
-				// Trim whitespace and skip empty lines
-				trimmed := strings.TrimSpace(line)
-				if trimmed != "" {
-					fmt.Printf("  %s\n", line)
+	case testsLoadedMsg:
+		m.tests = msg.tests
+		return m, nil
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+
+		case "down", "j":
+			if m.cursor < len(m.tests)-1 {
+				m.cursor++
+			}
+
+		case "home", "g":
+			m.cursor = 0
+
+		case "end", "G":
+			m.cursor = len(m.tests) - 1
+
+		case "enter":
+			if m.cursor < len(m.tests) {
+				test := m.tests[m.cursor]
+				if test.FilePath != "" && test.Line > 0 {
+					return m, openFile(test.FilePath, test.Line)
 				}
 			}
 		}
+
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case tea.MouseButtonWheelDown:
+			if m.cursor < len(m.tests)-1 {
+				m.cursor++
+			}
+		case tea.MouseButtonLeft:
+			// Check if click is in sidebar
+			if msg.X < m.sidebarWidth {
+				// Calculate which test was clicked (accounting for header)
+				clickedIndex := msg.Y - 2
+				if clickedIndex >= 0 && clickedIndex < len(m.tests) {
+					m.cursor = clickedIndex
+				}
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) View() string {
+	if !m.ready {
+		return "Loading tests..."
+	}
+
+	if len(m.tests) == 0 {
+		return "No tests found.\n\nPress q to quit."
+	}
+
+	// Build sidebar
+	var sidebarContent strings.Builder
+	sidebarContent.WriteString(titleStyle.Render("Tests") + "\n\n")
+
+	visibleStart := 0
+	visibleEnd := len(m.tests)
+
+	// Calculate visible range to fit in window
+	maxVisible := m.height - 4 // Account for title, borders, and padding
+	if len(m.tests) > maxVisible {
+		visibleStart = m.cursor - maxVisible/2
+		if visibleStart < 0 {
+			visibleStart = 0
+		}
+		visibleEnd = visibleStart + maxVisible
+		if visibleEnd > len(m.tests) {
+			visibleEnd = len(m.tests)
+			visibleStart = visibleEnd - maxVisible
+			if visibleStart < 0 {
+				visibleStart = 0
+			}
+		}
+	}
+
+	for i := visibleStart; i < visibleEnd; i++ {
+		test := m.tests[i]
+		cursor := " "
+		if i == m.cursor {
+			cursor = "►"
+		}
+
+		status := "?"
+		style := lipgloss.NewStyle()
+		if test.Status == "pass" {
+			status = "✓"
+			style = passStyle
+		} else if test.Status == "fail" {
+			status = "✗"
+			style = failStyle
+		}
+
+		testName := test.Name
+		maxNameLen := m.sidebarWidth - 6
+		if len(testName) > maxNameLen {
+			testName = testName[:maxNameLen-3] + "..."
+		}
+
+		line := fmt.Sprintf("%s %s %s", cursor, status, testName)
+		if i == m.cursor {
+			line = selectedItemStyle.Render(line)
+		} else {
+			line = style.Render(line)
+		}
+		sidebarContent.WriteString(line + "\n")
+	}
+
+	sidebar := sidebarStyle.
+		Width(m.sidebarWidth - 2).
+		Height(m.height - 2).
+		Render(sidebarContent.String())
+
+	// Build content pane
+	var contentText strings.Builder
+	if m.cursor < len(m.tests) {
+		selectedTest := m.tests[m.cursor]
+
+		// Title
+		statusText := ""
+		if selectedTest.Status == "pass" {
+			statusText = passStyle.Render("PASS")
+		} else if selectedTest.Status == "fail" {
+			statusText = failStyle.Render("FAIL")
+		}
+
+		contentText.WriteString(titleStyle.Render(selectedTest.Name) + " " + statusText + "\n")
+
+		// File link
+		if selectedTest.FilePath != "" && selectedTest.Line > 0 {
+			fileLink := fmt.Sprintf("%s:%d", selectedTest.FilePath, selectedTest.Line)
+			contentText.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Render(fileLink) + "\n")
+		}
+		contentText.WriteString("\n")
+
+		// Output
+		for _, line := range selectedTest.Output {
+			trimmed := strings.TrimRight(line, "\n")
+			if trimmed != "" {
+				contentText.WriteString(trimmed + "\n")
+			}
+		}
+	}
+
+	content := contentStyle.
+		Width(m.width - m.sidebarWidth - 4).
+		Height(m.height - 2).
+		Render(contentText.String())
+
+	// Combine sidebar and content
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
+}
+
+func openFile(filepath string, line int) tea.Cmd {
+	return func() tea.Msg {
+		editors := []string{
+			"zed",
+			"code",
+			"subl",
+			"atom",
+			"vim",
+			"nvim",
+			"emacs",
+		}
+
+		// Try each editor
+		for _, editor := range editors {
+			var cmd *exec.Cmd
+			switch editor {
+			case "zed", "code", "subl", "atom":
+				cmd = exec.Command(editor, fmt.Sprintf("%s:%d", filepath, line))
+			case "vim", "nvim":
+				cmd = exec.Command(editor, "+"+fmt.Sprint(line), filepath)
+			case "emacs":
+				cmd = exec.Command(editor, fmt.Sprintf("+%d", line), filepath)
+			}
+
+			if err := cmd.Start(); err == nil {
+				return nil
+			}
+		}
+
+		// Fallback: try to open with default editor
+		cmd := exec.Command("open", fmt.Sprintf("%s:%d", filepath, line))
+		cmd.Start()
+
+		return nil
+	}
+}
+
+func main() {
+	p := tea.NewProgram(
+		initialModel(),
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
+
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }
