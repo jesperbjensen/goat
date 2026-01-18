@@ -17,19 +17,51 @@ A Terminal User Interface (TUI) for running and viewing Go tests with an interac
 go build -o goat
 ```
 
+Or install as a Go tool:
+
+```bash
+go install
+```
+
 ## Usage
 
-Run the test viewer:
+Run the test viewer in any Go project directory:
+
+```bash
+goat
+```
+
+Or with a local build:
 
 ```bash
 ./goat
 ```
 
-Or directly with:
+### Command-Line Arguments
+
+You can pass any `go test` arguments to goat:
 
 ```bash
-go run .
+# Run tests in a specific package
+goat ./pkg/mypackage
+
+# Run tests with verbose output
+goat -v ./...
+
+# Run specific tests by pattern
+goat -run TestMyFunction ./...
+
+# Run tests with coverage
+goat -cover ./...
+
+# Run tests with race detector
+goat -race ./...
+
+# Combine multiple flags
+goat -v -race -cover ./pkg/...
 ```
+
+**Default behavior**: If no arguments are provided, goat runs `go test -json ./...` (all tests recursively).
 
 ## Key Bindings
 
@@ -102,12 +134,14 @@ Bubble Tea TUI implementation:
 
 ## How It Works
 
-1. Application starts and runs `go test -json`
-2. Test output is parsed line-by-line as JSON events
-3. Test results are aggregated and sorted (failures first)
-4. TUI displays tests in a sidebar with status indicators
-5. Selecting a test shows detailed output in the content pane
-6. Pressing Enter opens the test file at the error line
+1. Application parses command-line arguments (defaults to `./...` if none provided)
+2. Runs `go test -json [your args...]`
+3. Tests are discovered based on your arguments
+4. Test output is parsed line-by-line as JSON events
+5. Test results are aggregated and sorted (failures first)
+6. TUI displays tests in a sidebar with status indicators
+7. Selecting a test shows detailed output in the content pane
+8. Pressing Enter opens the test file at the error line
 
 ## Supported Editors
 

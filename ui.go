@@ -16,21 +16,25 @@ type model struct {
 	height       int
 	sidebarWidth int
 	ready        bool
+	testArgs     []string
 }
 
 // initialModel creates a new model with default values
-func initialModel() model {
+func initialModel(testArgs []string) model {
 	return model{
 		tests:        []TestResult{},
 		cursor:       0,
 		sidebarWidth: 30,
 		ready:        false,
+		testArgs:     testArgs,
 	}
 }
 
 // Init initializes the model and returns the initial command
 func (m model) Init() tea.Cmd {
-	return loadTests
+	return func() tea.Msg {
+		return loadTests(m.testArgs)
+	}
 }
 
 // Update handles messages and updates the model

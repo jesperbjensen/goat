@@ -12,8 +12,11 @@ import (
 )
 
 // loadTests runs go test -json and parses the results
-func loadTests() tea.Msg {
-	cmd := exec.Command("go", "test", "-json")
+func loadTests(testArgs []string) tea.Msg {
+	// Build command: go test -json [args...]
+	args := []string{"test", "-json"}
+	args = append(args, testArgs...)
+	cmd := exec.Command("go", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return testsLoadedMsg{tests: []TestResult{}}
