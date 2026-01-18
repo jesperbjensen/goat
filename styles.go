@@ -32,4 +32,30 @@ var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("12"))
+
+	// loadingStyle is used for loading messages
+	loadingStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("12")).
+			Bold(true)
+
+	// errorStyle is used for error messages (red)
+	errorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")).
+			Bold(true)
+
+	// successStyle is used for success messages (green)
+	successStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")).
+			Bold(true)
+
+	// statusBarStyle is used for the status bar at the bottom
+	statusBarStyle = lipgloss.NewStyle().
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderTop(true).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(0, 1)
+
+	// dimStyle is used for less important text
+	dimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
 )

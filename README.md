@@ -10,6 +10,11 @@ A Terminal User Interface (TUI) for running and viewing Go tests with an interac
 - 🔗 Clickable file links to open tests in your editor
 - 🎨 Beautiful terminal UI using Bubble Tea and Lip Gloss
 - 🚀 Failed tests displayed first for quick debugging
+- ⚡ Real-time loading status while tests run
+- 🔍 Filter toggle to show only failed tests
+- 🎉 Success message when all tests pass
+- ⚠️ Clear error messages if something goes wrong
+- 📊 Status bar with test counts and keyboard hints
 
 ## Installation
 
@@ -70,6 +75,7 @@ goat -v -race -cover ./pkg/...
 - **g/Home** - Jump to first test
 - **G/End** - Jump to last test
 - **Enter** - Open test file at error line in editor
+- **f** - Toggle filter (show only failed tests)
 - **q/Ctrl+C** - Quit application
 
 ## Mouse Controls
@@ -135,13 +141,19 @@ Bubble Tea TUI implementation:
 ## How It Works
 
 1. Application parses command-line arguments (defaults to `./...` if none provided)
-2. Runs `go test -json [your args...]`
-3. Tests are discovered based on your arguments
-4. Test output is parsed line-by-line as JSON events
-5. Test results are aggregated and sorted (failures first)
-6. TUI displays tests in a sidebar with status indicators
-7. Selecting a test shows detailed output in the content pane
-8. Pressing Enter opens the test file at the error line
+2. Shows loading status while running tests
+3. Runs `go test -json [your args...]`
+4. Tests are discovered based on your arguments
+5. Test output is parsed line-by-line as JSON events
+6. Test results are aggregated and sorted (failures first)
+7. TUI displays tests in a sidebar with status indicators
+8. Status bar shows pass/fail counts and keyboard hints
+9. Selecting a test shows detailed output in the content pane
+10. Pressing Enter opens the test file at the error line
+11. Press 'f' to toggle between all tests and failures only
+12. When all tests pass, a success message is displayed
+
+If an error occurs (e.g., no Go module, invalid path), a clear error message is shown.
 
 ## Supported Editors
 

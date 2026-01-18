@@ -19,11 +19,11 @@ func loadTests(testArgs []string) tea.Msg {
 	cmd := exec.Command("go", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return testsLoadedMsg{tests: []TestResult{}}
+		return testsLoadedMsg{tests: []TestResult{}, err: fmt.Errorf("failed to create stdout pipe: %w", err)}
 	}
 
 	if err := cmd.Start(); err != nil {
-		return testsLoadedMsg{tests: []TestResult{}}
+		return testsLoadedMsg{tests: []TestResult{}, err: fmt.Errorf("failed to start go test: %w", err)}
 	}
 
 	scanner := bufio.NewScanner(stdout)
@@ -95,5 +95,5 @@ func loadTests(testArgs []string) tea.Msg {
 		return tests[i].Name < tests[j].Name
 	})
 
-	return testsLoadedMsg{tests: tests}
+	return testsLoadedMsg{tests: tests, err: nil}
 }

@@ -22,4 +22,5 @@ type TestResult struct {
 // testsLoadedMsg is sent when tests have been loaded and parsed
 type testsLoadedMsg struct {
 	tests []TestResult
+	err   error
 }
